@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>levenshtein dictionary</title>
+        <meta charset="utf-8">
+        <style>
+            body {
+                font-family: Helvetica, Arial, sans-serif;
+            }
+        </style>
+        <script type="text/javascript" src="dictionary.js"></script>
+        <script type="text/javascript" src="ipa_dict.js"></script>
+        <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+        <script>
+    
+        function lev_dist(a, b) { //http://jsperf.com/levenshtein-algorithms/16
+            if (a == b) return 0;
+
+            var aLen = a.length, bLen = b.length;
+
+            if (!aLen) return bLen;
+            if (!bLen) return aLen;
+
+            var len = aLen + 1,
+                v0 = new Array(len),
+                v1 = new Array(len),
+                c2, min, tmp,
+                i = 0,
+                j = 0;
+
+            while(i < len) v0[i] = i++;
+
+            while(j < bLen) {
+                v1[0] = j + 1;
+                c2 = b.charAt(j++);
+                i = 0;
+
+                while(i < aLen) {
+                    min = v0[i] - (a.charAt(i) == c2 ? 1 : 0);
+                    if (v1[i] < min) min = v1[i];
+                    if (v0[++i] < min) min = v0[i];
+                    v1[i] = min + 1;
+                }
+
+                tmp = v0; v0 = v1; v1 = tmp;
+            }
+            
+            return v0[aLen];
+        }
+        
+        window.onbeforeunload = function() { return 'results will be lost.'; };
+        
+        var levenshtein_dict = [];
+        var levenshtein_dict_dist = {}; //contains levenshtein distance of each word compared to its last word
+        var record_words = [];
+        var oddest_words = {};
+
+        function generate_levenshtein_dict() {
+            var dictionary = window.dictionary,
+                this_distance,
+                closest_word,
+                current_distance = Infinity,
+                current_word = 'adapt';
+            
+            levenshtein_dict = [];
+            levenshtein_dict_dist = [];
+                
+                dictionary = $.grep(dictionary, function(value) {
+                    return !/[^\w\s]$|[A-Z\s\/]/.test(value) && //remove words with caps or slashes or ending with dot or dash
+                           !/\s/.test(value) &&                 //remove words with spaces
+                           !/-/.test(value) &&                  //remove words with dashes
+                            value.length >= 3 &&                //remove 1 and 2 letter words 
+                            value.length <= 29;                 //remove words longer than 28 letters  
+                });
+            
+            var words_to_process = dictionary.length;
+            
+            for(var i = words_to_process; i > 0; i--) {
+                //add to sorted array
+                levenshtein_dict.push(current_word);
+                dictionary.splice($.inArray(current_word, dictionary), 1);
+                
+                var current_distance = Infinity;
+                
+                //find the closest match of remaining words in dictionary
+                dictionary.every(function(entry, index) {
+                    this_distance = lev_dist(current_word, entry);
+                    
+                    if(this_distance < current_distance && this_distance !== 0) {
+                        current_distance = this_distance;
+                        closest_word = entry;
+                    }
+                    
+                    //return from loop if closest possible word was found
+                    if(current_distance === 1) return false;
+                    
+                    return true;
+                });
+                
+                //remove and set new current word
+                current_word = closest_word;
+                
+                if (i % 10 === 0) {
+                    console.clear();
+                    console.log(Math.round(((words_to_process - i) / words_to_process) * 100) + '%');
+                }
+            }
+            
+            //print levenshtein dictionary
+            console.log('loaded ' + levenshtein_dict.length + ' items.');
+            console.log('levenshtein_dict:');
+            return levenshtein_dict;
+        }
+        
+        function generate_phonetic_levenshtein_dict() {
+            var ipa_dict = window.ipa_dict,
+                this_distance,
+                closest_word,
+                current_word = 'adapt',
+                current_word = $.grep(ipa_dict, function(value) { return value[0] === current_word })[0];
+                
+            levenshtein_dict = [];
+            levenshtein_dict_dist = [];
+                
+            ipa_dict = $.grep(ipa_dict, function(value) {
+                return value[1] !== '' &&                    //remove any words without ipa
+                       value[0].length >= 3 &&               //remove 1 and 2 letter words
+                       !/[^\w\s]$|[A-Z\s\/]/.test(value[0]); //remove words with caps, spaces or slashes or ending with dot or dash
+            });
+            
+            var words_to_process = ipa_dict.length;
+            
+            for(var i = words_to_process; i > 0; i--) {
+                //add to sorted array
+                levenshtein_dict.push(current_word[0]);
+                levenshtein_dict_dist[current_word[0]] = current_distance;
+                
+                var current_distance = Infinity;
+                
+                //remove from original
+                ipa_dict.forEach(function(v, i) { 
+                    if (v[0] === current_word[0]) ipa_dict.splice(i, 1);
+                });
+                
+                //find the closest match of remaining words in dictionary
+                ipa_dict.every(function(entry, index) {
+                    var this_distance = lev_dist(current_word[1], entry[1]);
+                    
+                    //if pronunciation key is more similar than any other word yet tested or if it has same pronunciation as a different word
+                    if(this_distance < current_distance && (this_distance !== 0 || (this_distance === 0 && current_word[0] !== entry[0]))) {
+                        current_distance = this_distance;
+                        closest_word = entry;
+                    }
+                    
+                    //return from loop if word with exact same pronuncation was found
+                    if(current_distance === 0) return false;
+                    
+                    return true;
+                });
+                
+                //remove and set new current word
+                current_word = closest_word;
+                
+                if (i % 10 === 0) {
+                    console.clear();
+                    console.log(Math.round(((words_to_process - i) / words_to_process) * 100) + '%');
+                }
+            }
+            
+            //print levenshtein dictionary
+            console.log('loaded ' + levenshtein_dict.length + ' items.');
+            console.log('levenshtein_dict:');
+            return levenshtein_dict;
+        }
+        
+        function find_oddest_words() {
+            var word_a,
+                word_b,
+                word_ab_dist,
+                this_word_distance,
+                record_distance, 
+                word_length_range = [8, 15];
+                
+            //remove words with spaces, dashes, caps / ending with dot or dash.
+            dictionary = $.grep(dictionary, function(value) {
+                return !/[^\w\s]$|[A-Z\s\/\-]/.test(value);
+            });
+            
+            console.clear();
+            console.log('finding oddest words... \n');
+            
+            //for each word length 
+            for (var word_length = word_length_range[0]; word_length <= word_length_range[1]; word_length++){
+                console.log(word_length + ' letters');
+                record_distance = 0;
+                closest_record_distance = Infinity,
+                record_words = [];
+                
+                //test word a
+                for (var i = 0; i < dictionary.length; i++) {
+                    if(dictionary[i].length !== word_length) continue; //check if word is desired length
+                    
+                    word_a = dictionary[i];
+                    this_word_distance = Infinity;
+                    
+                    //against word b
+                    for(var j = 0; j < dictionary.length; j++) {
+                        word_b = dictionary[j];
+                        word_ab_dist = lev_dist(word_a, word_b);
+
+                        if(word_ab_dist < this_word_distance && word_ab_dist !== 0) {
+                            this_word_distance = word_ab_dist;
+                        } 
+                    }
+                    
+                    if(this_word_distance === record_distance) { //if word matches record
+                        record_words.push(word_a);
+                        
+                    } else if(this_word_distance > record_distance) { //if word beats record, set it as current record
+                        record_distance = this_word_distance;
+                        record_words = [word_a];
+                    }
+                }
+                
+                $.each(record_words, function(i, record_word){
+                    var closest_record_distance = Infinity,
+                        distance_against_record,
+                        word_being_tested_against_record;
+                
+                    //find word nearest to record word
+                    for (var k = 0; k < dictionary.length; k++) {
+                        word_being_tested_against_record = dictionary[k];
+                        distance_against_record = lev_dist(record_word, word_being_tested_against_record);
+                        
+                        if(distance_against_record < closest_record_distance && distance_against_record !== 0) {
+                            closest_record_distance = distance_against_record;
+                            closest_record_word = word_being_tested_against_record;
+                        }
+                    }
+                    
+                    //outputs oddest words once every word of this word_length has been checked.
+                    console.log(record_word + ' - its closest word is ' + closest_record_word + 
+                                ' - distance of: ' + closest_record_distance);
+                                
+                    //outputs oddest words to an object
+                    if(!oddest_words['' + word_length]) oddest_words['' + word_length] = [];
+                    oddest_words['' + word_length].push({
+                        'word': record_word,
+                        'closest word': closest_record_word,
+                        'distance to closest word': closest_record_distance
+                    });
+                });
+                console.log('');
+            }
+            
+            console.log('done.');
+        }
+
+        </script>
+    </head>
+    <body>
+        <h1><a href="http://internetveterans.org/dictionary" target="_blank">levenshtein dictionary</a></h1>
+        
+        <p>dependent files: dictionary.js, ipa_dict.js, jquery</p>
+        
+        <p>call these functions in your console. your browser tab may hang for hours until the process is complete.</p>
+        
+        <p>
+            <b>generate_levenshtein_dict()</b>
+            <br> 
+            uses variable <i>dictionary</i> to output a variable <i>levenshtein_dictionary</i> listing words in order of similarity.
+        </p>
+        
+        <p>
+            <b>generate_phonetic_levenshtein_dict()</b>
+            <br> 
+            uses variable <i>ipa_dict</i> to output a variable <i>levenshtein_dictionary</i> listing words in order of similarity using their IPA key.
+        </p>
+
+        <p>
+            <b>find_oddest_words()</b>
+            <br> 
+            uses variable <i>dictionary</i> to output a list of oddest words between 8 and 15 characters.
+        </p>
+    </body>
+</html>
+
