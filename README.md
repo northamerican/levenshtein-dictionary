@@ -1,4 +1,4 @@
-levenshtein dictionary
+#levenshtein dictionary
 2014, chris bitsakis
 
 lists words in order of similarity.
